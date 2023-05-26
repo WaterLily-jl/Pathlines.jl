@@ -1,0 +1,5 @@
+[deps]
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
+EllipsisNotation = "da5c29d0-fa7d-589e-88eb-ea29b0a81949"

@@ -2,6 +2,7 @@ using WaterLily,StaticArrays,CUDA,EllipsisNotation
 
 struct Particles{D,V<:AbstractArray,S<:AbstractArray}
     position::V
+    position⁰::V
     age::S
     lower::SVector{D}
     upper::SVector{D}
@@ -10,7 +11,7 @@ end
 function Particles(N::Int,lower::SVector{D,T},upper::SVector{D,T};life::UInt8=0xff,mem=Array) where {D,T}
     position = [spawn(lower,upper) for _ in 1:N] |> mem
     age = rand(UInt8,N) .% life |> mem
-    Particles{D,typeof(position),typeof(age)}(position, age, lower, upper, life)
+    Particles{D,typeof(position),typeof(age)}(position, copy(position), age, lower, upper, life)
 end
 Base.show(io::IO, ::MIME"text/plain", z::Particles) = show(io,MIME("text/plain"),z.position)
 
@@ -46,18 +47,22 @@ function ∫uΔt(x, u⁰, u, Δt)
     v⁰ = interp(x,u⁰);  dx = Δt*v⁰  # predict
     v = interp(x+dx,u); Δt*(v+v⁰)/2 # correct
 end
-bound(age,x,life,lower,upper) = ifelse(age==life || x<lower || x>upper, spawn(lower,upper), x)
+bound(age,x,life,lower,upper) = ifelse(age==life || x<lower || x>upper, zero(age), age)
+respawn(age,x,lower,upper) = ifelse(age==zero(age),spawn(lower,upper),x)
+recopy(age,x,x⁰) = ifelse(age==zero(age),x⁰,x)
 
 function update!(p::Particles,sim::Simulation)
     # update position using the simulation and age by one step
     Δt = last(sim.flow.Δt)
-    p.position .+= ∫uΔt.(p.position,Ref(sim.flow.u⁰),Ref(sim.flow.u),Ref(Δt))
+    p.position⁰ .= p.position
+    p.position .+= ∫uΔt.(p.position⁰,Ref(sim.flow.u⁰),Ref(sim.flow.u),Ref(Δt))
     Δage = one(eltype(p.age))
     p.age .+= Ref(Δage)
 
     # Enforce bounds
-    p.position .= bound.(p.age,p.position,Ref(p.life),Ref(p.lower),Ref(p.upper))
-    p.age .= p.age .% Ref(p.life)
+    p.age .= bound.(p.age,p.position,Ref(p.life),Ref(p.lower),Ref(p.upper))
+    p.position⁰ .= respawn.(p.age,p.position⁰,Ref(p.lower),Ref(p.upper))
+    p.position .= recopy.(p.age,p.position,p.position⁰)
     return p
 end
 

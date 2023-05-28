@@ -1,4 +1,5 @@
-using CUDA, GLMakie, StaticArrays
+using CUDA, StaticArrays
+import GLMakie: Box,linesegments!,Figure,Axis,hidedecorations!
 
 function addlayer!(fig,dat)
     Box(fig,width=1600,height=1600,color=(:green,0.1))
@@ -22,13 +23,13 @@ end
 L = 32; sim = TGV(L,mem=CuArray); sim_step!(sim,0.01);
 
 fig = Figure(resolution=(800,800));
-ax = Axis(fig[1, 1]; limits=(1, L+1, 1, L+1),autolimitaspect = 1)
+ax = Axis(fig[1, 1]; limits=(2, L+1, 2, L+1),autolimitaspect = 1)
 Box(fig,width=1600,height=1600,color=:green)
 hidedecorations!(ax)
 fig
 
-lower = SVector{2,Float32}(1.5,1.5)
-upper = SVector{2,Float32}(L+0.5,L+0.5)
+lower = SVector{2,Float32}(2,2)
+upper = SVector{2,Float32}(L+1,L+1)
 p = Particles(1024,lower,upper,mem=CuArray)
 update!(p,sim)
 dat = tuple.(p.position⁰,p.position) |> Array

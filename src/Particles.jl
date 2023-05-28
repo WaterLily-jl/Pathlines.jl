@@ -1,4 +1,4 @@
-using WaterLily,StaticArrays,CUDA,EllipsisNotation
+using WaterLily,StaticArrays,CUDA,EllipsisNotation,KernelAbstractions
 
 struct Particles{D,V<:AbstractArray,S<:AbstractArray}
     position::V
@@ -47,22 +47,25 @@ function ∫uΔt(x, u⁰, u, Δt)
     v⁰ = interp(x,u⁰);  dx = Δt*v⁰  # predict
     v = interp(x+dx,u); Δt*(v+v⁰)/2 # correct
 end
-bound(age,x,life,lower,upper) = ifelse(age==life || x<lower || x>upper, zero(age), age)
-respawn(age,x,lower,upper) = ifelse(age==zero(age),spawn(lower,upper),x)
-recopy(age,x,x⁰) = ifelse(age==zero(age),x⁰,x)
 
-function update!(p::Particles,sim::Simulation)
-    # update position using the simulation and age by one step
-    Δt = last(sim.flow.Δt)
-    p.position⁰ .= p.position
-    p.position .+= ∫uΔt.(p.position⁰,Ref(sim.flow.u⁰),Ref(sim.flow.u),Ref(Δt))
-    Δage = one(eltype(p.age))
-    p.age .+= Ref(Δage)
+@kernel function _update!(age,x,x⁰,@Const(u⁰),@Const(u),@Const(Δt),@Const(life),@Const(lower),@Const(upper))
+    i = @index(Global)
+    # Use sim to integrate to new position and update other states
+    x⁰[i] = x[i]
+    x[i] += ∫uΔt(x⁰[i],u⁰,u,Δt)
+    age[i] += one(eltype(age))
 
     # Enforce bounds
-    p.age .= bound.(p.age,p.position,Ref(p.life),Ref(p.lower),Ref(p.upper))
-    p.position⁰ .= respawn.(p.age,p.position⁰,Ref(p.lower),Ref(p.upper))
-    p.position .= recopy.(p.age,p.position,p.position⁰)
+    if(age[i]==life || x[i]<lower || x[i]>upper)
+        age[i] = zero(eltype(age))
+        x[i] = spawn(lower,upper)
+        x⁰[i] = x[i]
+    end
+end
+function update!(p::Particles,sim::Simulation)
+    Δt = last(sim.flow.Δt)
+    _update!(get_backend(p.age),64)(p.age,p.position,p.position⁰,
+        sim.flow.u⁰,sim.flow.u,Δt,p.life,p.lower,p.upper,ndrange=length(p.age))
     return p
 end
 
@@ -80,15 +83,15 @@ function TGV(L; Re=1e5, T=Float32, mem=Array)
     return Simulation((L, L, L), (0, 0, 0), L; U, uλ, ν, T, mem)
 end
 
-function test()
+function test(mem=Array)
     CUDA.allowscalar(false)
     D,N,T = 3,32,Float32
-    vortex = TGV(N;T,mem=CuArray);
+    vortex = TGV(N;T,mem);
     WaterLily.mom_step!(vortex.flow,vortex.pois);
 
     lower = SVector{D,T}(1.5 for _ in 1:D)
     upper = SVector{D,T}(N-0.5 for _ in 1:D)
-    p = Particles(Int(1e6),lower,upper,mem=CuArray)
+    p = Particles(Int(1e6),lower,upper;mem)
     update!(p,vortex)
     @time update!(p,vortex)
 end

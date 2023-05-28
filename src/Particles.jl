@@ -17,11 +17,13 @@ Base.show(io::IO, ::MIME"text/plain", z::Particles) = show(io,MIME("text/plain")
 
 spawn(lower::SVector{D,T},upper::SVector{D,T}) where {D,T} = rand(SVector{D,T}).*(upper-lower)+lower
 
-function interp(x::SVector{D,T}, arr::AbstractArray{T,D}) where {D,T}
-    """
-    Linear interpolation from array `arr` at coordinate `x`.
+"""
+    interp(x::SVector, arr::AbstractArray)
+
+    Linear interpolation from array `arr` at index-coordinate `x`.
     Note: This routine works for any number of dimensions.
-    """
+"""
+function interp(x::SVector{D,T}, arr::AbstractArray{T,D}) where {D,T}
     # Index below the interpolation coordinate and the difference
     i = floor.(Int,x); y = x.-i
     
@@ -43,9 +45,9 @@ function interp(x::SVector{D,T}, varr::AbstractArray{T}) where {D,T}
     return SVector{D,T}(interp(x-shift(i),@view(varr[..,i])) for i in 1:D)
 end
 
-function ∫uΔt(x, u⁰, u, Δt)
-    v⁰ = interp(x,u⁰);  dx = Δt*v⁰  # predict
-    v = interp(x+dx,u); Δt*(v+v⁰)/2 # correct
+function ∫uΔt(x⁰, u⁰, u, Δt)
+    v⁰ = interp(x⁰,u⁰);  dx = Δt*v⁰  # predict
+    v = interp(x⁰+dx,u); Δt*(v+v⁰)/2 # correct
 end
 
 @kernel function _update!(age,x,x⁰,@Const(u⁰),@Const(u),@Const(Δt),@Const(life),@Const(lower),@Const(upper))
@@ -62,7 +64,15 @@ end
         x⁰[i] = x[i]
     end
 end
+
+"""
+    update!(p:Particles,sim:Simulation)
+
+    Update the state of each particle in `p` using a given flow `sim`.
+    Uses KernelAbstractions to run multi-threaded on CPUs and GPUs.
+"""
 function update!(p::Particles,sim::Simulation)
+    # KernelAbstractions loop through all the Particles
     Δt = last(sim.flow.Δt)
     _update!(get_backend(p.age),64)(p.age,p.position,p.position⁰,
         sim.flow.u⁰,sim.flow.u,Δt,p.life,p.lower,p.upper,ndrange=length(p.age))

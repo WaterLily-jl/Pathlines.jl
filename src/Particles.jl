@@ -6,11 +6,11 @@ struct Particles{D,V<:AbstractArray,S<:AbstractArray}
     age::S
     lower::SVector{D}
     upper::SVector{D}
-    life::UInt8
+    life::UInt
 end
-function Particles(N::Int,lower::SVector{D,T},upper::SVector{D,T};life::UInt8=0xff,mem=Array) where {D,T}
+function Particles(N::Int,lower::SVector{D,T},upper::SVector{D,T};life=UInt(255),mem=Array) where {D,T}
     position = [spawn(lower,upper) for _ in 1:N] |> mem
-    age = rand(UInt8,N) .% life |> mem
+    age = rand(UInt,N) .% life |> mem
     Particles{D,typeof(position),typeof(age)}(position, copy(position), age, lower, upper, life)
 end
 Base.show(io::IO, ::MIME"text/plain", z::Particles) = show(io,MIME("text/plain"),z.position)
@@ -46,8 +46,13 @@ function interp(x::SVector{D,T}, varr::AbstractArray{T}) where {D,T}
 end
 
 function ∫uΔt(x⁰, u⁰, u, Δt)
-    v⁰ = interp(x⁰,u⁰);  dx = Δt*v⁰  # predict
-    v = interp(x⁰+dx,u); Δt*(v+v⁰)/2 # correct
+    v₁ = interp(x⁰,u⁰)
+    v₂ = interp(x⁰+Δt*v₁,u)
+    return Δt*(v₁+v₂)/2 # RK2
+    # v₂ = (interp(x⁰+Δt*v₁/2,u⁰)+interp(x⁰+Δt*v₁/2,u))/2
+    # v₃ = (interp(x⁰+Δt*v₂/2,u⁰)+interp(x⁰+Δt*v₂/2,u))/2
+    # v₄ = interp(x⁰+Δt*v₃,u)
+    # return Δt*(v₁+2v₂+2v₃+v₄)/6 # RK4
 end
 
 @kernel function _update!(age,x,x⁰,@Const(u⁰),@Const(u),@Const(Δt),@Const(life),@Const(lower),@Const(upper))
@@ -73,7 +78,7 @@ end
 """
 function update!(p::Particles,sim::Simulation)
     # KernelAbstractions loop through all the Particles
-    Δt = last(sim.flow.Δt)
+    Δt = sim.flow.Δt[end-1]
     _update!(get_backend(p.age),64)(p.age,p.position,p.position⁰,
         sim.flow.u⁰,sim.flow.u,Δt,p.life,p.lower,p.upper,ndrange=length(p.age))
     return p

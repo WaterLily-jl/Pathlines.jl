@@ -15,6 +15,9 @@ function Particles(N::Int,lower::SVector{D,T},upper::SVector{D,T};life=UInt(255)
     age = rand(UInt,N) .% life |> mem
     Particles{D,typeof(position),typeof(age)}(position, copy(position), age, lower, upper, life)
 end
+Particles(N::Int,A::AbstractArray{T,D};life=UInt(255),mem=Array) where {D,T} = 
+    Particles(N,SVector{D,T}(1.5 for i in 1:D),SVector{D,T}(size(A,i)-0.5 for i in 1:D);life,mem)
+
 spawn(lower::SVector{D,T},upper::SVector{D,T}) where {D,T} = rand(SVector{D,T}).*(upper-lower)+lower
 
 """
@@ -33,7 +36,7 @@ update!(p::Particles,sim::Simulation) = _update!(get_backend(p.age),64)(p.age,p.
     age[i] += one(eltype(age))
 
     # Enforce bounds
-    if(age[i]==life || x[i]<lower || x[i]>upper)
+    if(age[i]==life || x[i]<=lower || x[i]>=upper)
         age[i] = zero(eltype(age))
         x[i] = spawn(lower,upper)
         x⁰[i] = x[i]
@@ -73,9 +76,10 @@ end
 function interp(x::SVector{D,T}, varr::AbstractArray{T}) where {D,T}
     # Shift to align with each staggered grid component and interpolate
     @inline shift(i) = SVector{D,T}(ifelse(i==j,0.5,0.) for j in 1:D)
-    return SVector{D,T}(interp(x-shift(i),@view(varr[..,i])) for i in 1:D)
+    return SVector{D,T}(interp(x+shift(i),@view(varr[..,i])) for i in 1:D)
 end
 
+using BenchmarkTools
 function TGV(L; Re=1e5, T=Float32, mem=Array)
     # Define vortex size, velocity, viscosity
     U = 1; ν = U*L/Re
@@ -89,18 +93,11 @@ function TGV(L; Re=1e5, T=Float32, mem=Array)
     # Initialize simulation
     return Simulation((L, L, L), (0, 0, 0), L; U, uλ, ν, T, mem)
 end
-
-using BenchmarkTools
-function testParticles(mem=Array)
+function testParticles(mem=Array,N=96,T=Float32)
     CUDA.allowscalar(false)
-    D,N,T = 3,96,Float32
     vortex = TGV(N;T,mem);
     WaterLily.mom_step!(vortex.flow,vortex.pois);
-
-    lower = SVector{D,T}(2 for _ in 1:D)
-    upper = SVector{D,T}(N+1 for _ in 1:D)
-    p = Particles(Int(1e6),lower,upper;mem)
-    
+    p = Particles(Int(1e6),vortex.flow.p;mem)
     update!(p,vortex);
     @btime update!($p,$vortex) samples=1 evals=10;
 end

@@ -8,14 +8,45 @@ struct Particles{D,V<:AbstractArray,S<:AbstractArray}
     upper::SVector{D}
     life::UInt
 end
+Base.show(io::IO, ::MIME"text/plain", z::Particles) = show(io,MIME("text/plain"),z.position)
+
 function Particles(N::Int,lower::SVector{D,T},upper::SVector{D,T};life=UInt(255),mem=Array) where {D,T}
     position = [spawn(lower,upper) for _ in 1:N] |> mem
     age = rand(UInt,N) .% life |> mem
     Particles{D,typeof(position),typeof(age)}(position, copy(position), age, lower, upper, life)
 end
-Base.show(io::IO, ::MIME"text/plain", z::Particles) = show(io,MIME("text/plain"),z.position)
-
 spawn(lower::SVector{D,T},upper::SVector{D,T}) where {D,T} = rand(SVector{D,T}).*(upper-lower)+lower
+
+"""
+    update!(p:Particles,sim:Simulation)
+
+    Update the state of each particle in `p` using a given flow `sim`.
+    Uses KernelAbstractions to run multi-threaded on CPUs and GPUs.
+"""
+update!(p::Particles,sim::Simulation) = _update!(get_backend(p.age),64)(p.age,p.position,p.position⁰,
+    sim.flow.u⁰,sim.flow.u,sim.flow.Δt[end-1],p.life,p.lower,p.upper,ndrange=length(p.age))
+@kernel function _update!(age,x,x⁰,@Const(u⁰),@Const(u),@Const(Δt),@Const(life),@Const(lower),@Const(upper))
+    i = @index(Global)
+    # Use sim to integrate to new position and update other states
+    x⁰[i] = x[i]
+    x[i] += ∫uΔt(x⁰[i],u⁰,u,Δt)
+    age[i] += one(eltype(age))
+
+    # Enforce bounds
+    if(age[i]==life || x[i]<lower || x[i]>upper)
+        age[i] = zero(eltype(age))
+        x[i] = spawn(lower,upper)
+        x⁰[i] = x[i]
+    end
+end
+
+function ∫uΔt(x⁰, u⁰, u, Δt)
+    v₁ = interp(x⁰,u⁰)
+    v₂ = (interp(x⁰+Δt*v₁/2,u⁰)+interp(x⁰+Δt*v₁/2,u))/2
+    v₃ = (interp(x⁰+Δt*v₂/2,u⁰)+interp(x⁰+Δt*v₂/2,u))/2
+    v₄ = interp(x⁰+Δt*v₃,u)
+    return Δt*(v₁+2v₂+2v₃+v₄)/6 # RK4
+end
 
 """
     interp(x::SVector, arr::AbstractArray)
@@ -45,45 +76,6 @@ function interp(x::SVector{D,T}, varr::AbstractArray{T}) where {D,T}
     return SVector{D,T}(interp(x-shift(i),@view(varr[..,i])) for i in 1:D)
 end
 
-function ∫uΔt(x⁰, u⁰, u, Δt)
-    v₁ = interp(x⁰,u⁰)
-    v₂ = interp(x⁰+Δt*v₁,u)
-    return Δt*(v₁+v₂)/2 # RK2
-    # v₂ = (interp(x⁰+Δt*v₁/2,u⁰)+interp(x⁰+Δt*v₁/2,u))/2
-    # v₃ = (interp(x⁰+Δt*v₂/2,u⁰)+interp(x⁰+Δt*v₂/2,u))/2
-    # v₄ = interp(x⁰+Δt*v₃,u)
-    # return Δt*(v₁+2v₂+2v₃+v₄)/6 # RK4
-end
-
-@kernel function _update!(age,x,x⁰,@Const(u⁰),@Const(u),@Const(Δt),@Const(life),@Const(lower),@Const(upper))
-    i = @index(Global)
-    # Use sim to integrate to new position and update other states
-    x⁰[i] = x[i]
-    x[i] += ∫uΔt(x⁰[i],u⁰,u,Δt)
-    age[i] += one(eltype(age))
-
-    # Enforce bounds
-    if(age[i]==life || x[i]<lower || x[i]>upper)
-        age[i] = zero(eltype(age))
-        x[i] = spawn(lower,upper)
-        x⁰[i] = x[i]
-    end
-end
-
-"""
-    update!(p:Particles,sim:Simulation)
-
-    Update the state of each particle in `p` using a given flow `sim`.
-    Uses KernelAbstractions to run multi-threaded on CPUs and GPUs.
-"""
-function update!(p::Particles,sim::Simulation)
-    # KernelAbstractions loop through all the Particles
-    Δt = sim.flow.Δt[end-1]
-    _update!(get_backend(p.age),64)(p.age,p.position,p.position⁰,
-        sim.flow.u⁰,sim.flow.u,Δt,p.life,p.lower,p.upper,ndrange=length(p.age))
-    return p
-end
-
 function TGV(L; Re=1e5, T=Float32, mem=Array)
     # Define vortex size, velocity, viscosity
     U = 1; ν = U*L/Re
@@ -98,15 +90,17 @@ function TGV(L; Re=1e5, T=Float32, mem=Array)
     return Simulation((L, L, L), (0, 0, 0), L; U, uλ, ν, T, mem)
 end
 
-function test(mem=Array)
+using BenchmarkTools
+function testParticles(mem=Array)
     CUDA.allowscalar(false)
-    D,N,T = 3,32,Float32
+    D,N,T = 3,96,Float32
     vortex = TGV(N;T,mem);
     WaterLily.mom_step!(vortex.flow,vortex.pois);
 
-    lower = SVector{D,T}(1.5 for _ in 1:D)
-    upper = SVector{D,T}(N-0.5 for _ in 1:D)
+    lower = SVector{D,T}(2 for _ in 1:D)
+    upper = SVector{D,T}(N+1 for _ in 1:D)
     p = Particles(Int(1e6),lower,upper;mem)
-    update!(p,vortex)
-    @time update!(p,vortex)
+    
+    update!(p,vortex);
+    @btime update!($p,$vortex) samples=1 evals=10;
 end

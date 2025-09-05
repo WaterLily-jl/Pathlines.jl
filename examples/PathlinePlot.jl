@@ -5,16 +5,21 @@ function make_pathplot(L=64,T=Float32, U=1,mem=Array)
     # Taylor-Green-Vortex
     function uλ(i,xy)
         x,y = @. (xy-1.5)*π/L           # scaled coordinates
-        i==1 && return -U*sin(x)*cos(y) # u_x
-        i==2 && return  U*cos(x)*sin(y) # u_y
+        if i==1 
+            return T(-U*sin(x)*cos(y))   # u_x
+        elseif i==2 
+            return T(U*cos(x)*sin(y))    # u_y
+        else
+            return T(0)                  # default case
+        end
     end
-
+    
     # Initialize simulation
     sim = Simulation((L, L), (0, 0), L; U, uλ, ν=U*L/1e3, T, mem)
 
     # Initialize plot
     color = :black
-    fig = Figure(resolution=(800,800));
+    fig = Figure(size=(800,800));
     ax = Axis(fig[1, 1]; limits=(2, L+1, 2, L+1),autolimitaspect = 1)
     Box(fig,width=1600,height=1600;color)
     hidedecorations!(ax)
@@ -29,7 +34,9 @@ function make_pathplot(L=64,T=Float32, U=1,mem=Array)
             WaterLily.mom_step!(sim.flow,sim.pois)
             update!(p,sim)
             copyto!(dat,tuple.(p.position⁰,p.position))
-            linesegments!(ax,dat,markersize=4,color=:white)
+            linesegments!(ax,dat,linewidth=4,color=:white)
         end
     end
 end
+
+make_pathplot()

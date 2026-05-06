@@ -1,9 +1,12 @@
 module Pathlines
 
 include("Particles.jl")
-export Particles,update!
+export Particles, update!
 
 include("ParticleViz.jl")
-export ParticleViz,notify!
+export ParticleViz, notify!
+
+include("PathViz.jl")
+export PathViz, step!
 
 end

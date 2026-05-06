@@ -15,8 +15,8 @@ function make_pathplot(L=64,T=Float32, U=1,mem=Array)
     # Initialize plot
     color = :black
     fig = GLMakie.Figure(size=(800,800));
-    ax = GLMakie.Axis(fig[1, 1]; limits=(2, L+1, 2, L+1),autolimitaspect = 1)
-    GLMakie.Box(fig,width=1600,height=1600;color)
+    ax = GLMakie.Axis(fig[1, 1]; limits=(2, L+1, 2, L+1), autolimitaspect=1)
+    ax.backgroundcolor = color  # solid background via axis property
     GLMakie.hidedecorations!(ax)
 
     # Set up Particles
@@ -24,7 +24,7 @@ function make_pathplot(L=64,T=Float32, U=1,mem=Array)
     dat = tuple.(p.position⁰,p.position) |> Array   
 
     @time GLMakie.record(fig,"pathlineplot.mp4",0.01:0.05:2.0) do t
-        Box(fig,width=1600,height=1600,color=(color,0.2))
+        GLMakie.poly!(ax, [GLMakie.Rect2f(2, 2, L-1, L-1)], color=(color, 0.2))
         while sim_time(sim)<t
             sim_step!(sim)
             Pathlines.update!(p,sim)

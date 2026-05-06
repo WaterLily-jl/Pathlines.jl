@@ -1,6 +1,8 @@
-using WaterLily,CUDA,Pathlines,GLMakie
+using WaterLily, CUDA, Pathlines, GLMakie
 
-function make_particleplot(;N=Int(1e4),life=UInt(255),name="particleplot.mp4",U=1,L=64,T=Float32,mem=CUDA.CuArray)
+function make_particleplot(; N=Int(1e4), life=UInt(255), name="particleplot.mp4",
+                             U=1, L=64, T=Float32,
+                             mem=CUDA.functional() ? CUDA.CuArray : Array)
     k = T(π/L)
     function uλ(i,xy)
         x,y = @. (xy-1.5f0)*k            # scaled coordinates
@@ -17,7 +19,7 @@ function make_particleplot(;N=Int(1e4),life=UInt(255),name="particleplot.mp4",U=
     #Set up figure
     fig = GLMakie.Figure()
     ax = GLMakie.Axis(fig[1, 1]; autolimitaspect=1)
-    GLMakie.scatter!(ax,v.opos,markersize=v.omag,rotation=v.odir,marker=GLMakie.Circle)
+    GLMakie.scatter!(ax, v.opos, markersize=v.omag, rotation=v.odir, marker=:circle)
 
     # Record video
     @time GLMakie.record(fig,name,0.01:0.05:2.0) do t

@@ -4,9 +4,9 @@ authors = ["Gabriel Weymouth"]
 version = "0.1.0"
 
 [deps]
-EllipsisNotation = "da5c29d0-fa7d-589e-88eb-ea29b0a81949"
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LilyPad = "e335cd22-3907-46ba-824b-62f80b6bacdb"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
@@ -15,7 +15,11 @@ WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
 julia = "1"
 
 [extras]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LilyPad = "e335cd22-3907-46ba-824b-62f80b6bacdb"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
 
 [targets]
-test = ["Test"]
+test = ["LinearAlgebra", "LilyPad", "StaticArrays", "Test", "WaterLily"]

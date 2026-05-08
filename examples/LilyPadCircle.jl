@@ -9,7 +9,7 @@ function make_lilypad_circle(; N=Int(2e4), life=UInt(200), Δt=1.5, T=Float32,
     body=AutoBody((x, t) -> √(x'x) - radius,
                   RigidMap(center,ω; ω))
 
-    sim = LiliBiotSim((n, m), (1, 0), 2radius; ν=0, Δt, body, mem, T)
+    sim = LilyBiotSim((n, m), (1, 0), 2radius; ν=0, Δt, body, mem, T)
 
     bgcolor = colorschemes[:starrynight].colors[1]
     bodycolor = colorschemes[:starrynight].colors[end]

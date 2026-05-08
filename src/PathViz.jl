@@ -62,13 +62,13 @@ to canvas pixel coordinates.
 """
 function _draw_segments!(canvas::Matrix{GLMakie.RGBAf}, pos, pos⁰,
                           cmap_colors, lo::Float32, hi::Float32,
-                          sx::Float32, sy::Float32)
+                          sx::Float32, sy::Float32, dt::Float32)
     px, py = size(canvas)
     ncmap  = length(cmap_colors)
     @inbounds for k in eachindex(pos)
         p0, p1 = pos⁰[k], pos[k]
         dx, dy = p1[1]-p0[1], p1[2]-p0[2]
-        speed  = sqrt(dx*dx + dy*dy)
+        speed  = sqrt(dx*dx + dy*dy)/dt
 
         # Colour from speed
         t    = clamp((speed - lo) / (hi - lo + 1f-6), 0f0, 1f0)
@@ -199,7 +199,8 @@ function update!(v::PathViz, sim)
     update!(v.p, sim)
     pos  = Array(v.p.position)
     pos⁰ = Array(v.p.position⁰)
-    _draw_segments!(v._canvas, pos, pos⁰, v._cmap_colors, v._clo, v._chi, v._sx, v._sy)
+    dt = sim.flow.Δt[end-1]
+    _draw_segments!(v._canvas, pos, pos⁰, v._cmap_colors, v._clo, v._chi, v._sx, v._sy, dt)
 end
 
 """

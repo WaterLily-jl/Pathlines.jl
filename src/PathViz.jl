@@ -152,7 +152,7 @@ function PathViz(sim; N=10_000, life=UInt(255), mem=Array,
                  colormap=:plasma, colorrange=(0, 3),
                  bodycolor=:white)
     σ      = sim.flow.σ
-    nx, ny = size(σ, 1), size(σ, 2)
+    nx, ny = size(σ, 1)-2, size(σ, 2)-2
     fs     = isnothing(figsize) ? (4nx, 4ny) : figsize
     px, py = isnothing(resolution) ? fs : resolution
 

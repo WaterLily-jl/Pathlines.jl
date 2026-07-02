@@ -1,37 +1,45 @@
-using WaterLily,CUDA,Pathlines,GLMakie
+"""
+Smoke test for the Pathlines.jl + WaterLily.viz! integration.
 
-function make_pathplot(L=64,T=Float32, U=1,mem=Array)
-    k = T(π/L)
-    function u0(i,xy)
-        x,y = @. (xy-1.5f0)*k            # scaled coordinates
-        i==1 && return -U*sin(x)*cos(y)  # u_x
-        i==2 && return  U*cos(x)*sin(y)  # u_y
-        zero(k)
-    end
+Sets up a temporary Julia environment with dev versions of WaterLily and
+Pathlines.jl from the workspace, runs a 2D circle flow, and saves pathline
+frames as PNGs to the current directory.
+"""
 
-    # Initialize simulation
-    sim = Simulation((L, L), (0, 0), L; U, u0, ν=U*L/1e3, T, mem)
+import Pkg
 
-    # Initialize plot
-    color = :black
-    fig = GLMakie.Figure(size=(800,800));
-    ax = GLMakie.Axis(fig[1, 1]; limits=(2, L+1, 2, L+1), autolimitaspect=1)
-    ax.backgroundcolor = color  # solid background via axis property
-    GLMakie.hidedecorations!(ax)
+# ── persistent project environment (avoids recompiling every run) ─────────────
+env_dir = joinpath(@__DIR__, ".test_pathlines_env")
+Pkg.activate(env_dir)
 
-    # Set up Particles
-    p = Particles(1024,sim.flow.σ;mem) 
-    dat = tuple.(p.position⁰,p.position) |> Array   
+repo_root = dirname(@__DIR__)   # WaterLily-Examples/../  = .../GitHub
+Pkg.develop(path=joinpath(repo_root, "WaterLily"))
+Pkg.develop(path=joinpath(repo_root, "LilyPad.jl"))   # unregistered dep of Pathlines
+Pkg.develop(path=joinpath(repo_root, "Pathlines.jl"))
+# GLMakie and StaticArrays come in as Pathlines deps; add extras just in case
+Pkg.add(["GLMakie", "StaticArrays"])
 
-    @time GLMakie.record(fig,"pathlineplot.mp4",0.01:0.05:2.0) do t
-        GLMakie.poly!(ax, [GLMakie.Rect2f(2, 2, L-1, L-1)], color=(color, 0.2))
-        while sim_time(sim)<t
-            sim_step!(sim)
-            Pathlines.update!(p,sim)
-            copyto!(dat,tuple.(p.position⁰,p.position))
-            GLMakie.linesegments!(ax,dat,linewidth=4,color=:white)
-        end
-    end
+# ── simulation ────────────────────────────────────────────────────────────────
+using WaterLily, GLMakie, Pathlines, StaticArrays
+
+function circle(; L=2^6, Re=250, U=1)
+    c = SA[3L÷2, L]          # centre at (1.5L, L)
+    body = AutoBody((x,t) -> √sum(abs2, x .- c) - L÷4)
+    Simulation((3L, 2L), (U,0), L÷4; ν=U*(L÷4)/Re, body)
 end
 
-make_pathplot()
+println("\n=== hook status ===")
+println("_pathlines_viz_hook set: ", !isnothing(WaterLily._pathlines_viz_hook[]))
+
+sim = circle()
+
+println("\n=== running viz! (5 frames saved as frame_0001..0005.png) ===")
+viz!(sim;
+    duration = 5,
+    step     = 1.0,
+    N        = 5_000,      # fewer particles for faster test
+    img      = "frame_%04d.png",   # per-frame PNG, renders offscreen (no display needed)
+    verbose  = true,
+)
+
+println("\nDone — check frame_0001.png ... frame_0005.png in $(pwd())")

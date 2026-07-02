@@ -3,10 +3,7 @@ module Pathlines
 include("Particles.jl")
 export Particles, update!
 
-include("ParticleViz.jl")
-export ParticleViz, notify!
-
-include("PathViz.jl")
-export PathViz, step!
+include("canvas.jl")
+export PathlineCanvas, fade!, draw!
 
 end

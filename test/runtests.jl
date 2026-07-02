@@ -1,5 +1,5 @@
 using Pathlines, WaterLily, LilyPad, StaticArrays, Test
-import GLMakie
+import Makie
 using LinearAlgebra: norm
 import WaterLily: interp
 import Pathlines: update!
@@ -107,193 +107,79 @@ end
 
 end
 
-@testset "ParticleViz" begin
-
-    @testset "constructor: sizes and valid values" begin
-        # ParticleViz copies particle state to CPU and wraps it in Observables.
-        # minsize=2 means every marker width ≥ 2 even for stationary particles.
-        sim = tgv_sim()
-        p = Particles(64, sim.flow.p; life=UInt(50))
-        for _ in 1:3; sim_step!(sim); update!(p, sim); end
-        Δt = sim.flow.Δt[end-1]
-        v = ParticleViz(p, Δt; minsize=2, width=1)
-
-        @test length(v.pos)  == 64
-        @test length(v.pos⁰) == 64
-        @test length(v.mag)  == 64
-        @test length(v.dir)  == 64
-        # Observables should wrap the same CPU arrays (no copy)
-        @test v.opos[] === v.pos
-        @test v.omag[] === v.mag
-        @test v.odir[] === v.dir
-        @test !any(isnan, reinterpret(Float32, v.pos))
-        # Vec2f marker: (length, width); length ≥ minsize=2, width == 1 kwarg
-        @test all(m[1] ≥ 2f0 for m in v.mag)
-        @test all(m[2] == 1f0 for m in v.mag)
-    end
-
-    @testset "notify!: updates CPU buffers and Observables" begin
-        sim = tgv_sim()
-        p = Particles(64, sim.flow.p; life=UInt(50))
-        for _ in 1:3; sim_step!(sim); update!(p, sim); end
-        v = ParticleViz(p, sim.flow.Δt[end-1])
-
-        pos_before = copy(v.pos)
-        for _ in 1:5; sim_step!(sim); update!(p, sim); end
-        notify!(v, p, sim.flow.Δt[end-1])
-
-        # At least some particles must have moved
-        @test v.pos != pos_before
-        # Observables still point to the same CPU arrays (not replaced)
-        @test v.opos[] === v.pos
-        @test !any(isnan, reinterpret(Float32, v.pos))
-        @test all(m[1] ≥ 2f0 for m in v.mag)
-    end
-
-    @testset "velmag and veldir: 3-4-5 triangle" begin
-        # Particle moves (3,4) in Δt=1 → speed=5, angle=atan(4,3)
-        x0 = SA[0.0f0, 0.0f0]
-        x  = SA[3.0f0, 4.0f0]
-
-        # scale=1, minsize=0 → marker length = speed = 5.0; width=2
-        m = Pathlines.velmag(x, x0, 1.0f0; scale=1, minsize=0, width=2)
-        @test m ≈ GLMakie.Vec2f(5, 2)
-
-        d = Pathlines.veldir(x, x0)
-        @test d ≈ atan(4f0, 3f0)
-    end
-
-    @testset "PathlinePlot: fading overlay creates axis plots" begin
-        # PathlinePlot draws a semi-transparent rectangle each frame to fade trails.
-        # Old code: GLMakie.Box(fig,...) is a layout element — it adds nothing to
-        # ax.scene.plots and so cannot produce a visible per-frame overlay.
-        # Fix: GLMakie.poly!(ax, [Rect2f(...)], color) draws in axis data space.
-        L = 16
-        fig = GLMakie.Figure()
-        ax = GLMakie.Axis(fig[1,1]; limits=(2, L+1, 2, L+1))
-
-        # Simulate 3 frames of PathlinePlot loop body (FIXED approach):
-        for _ in 1:3
-            GLMakie.poly!(ax, [GLMakie.Rect2f(2, 2, L-1, L-1)], color=(:black, 0.2))
-        end
-        # Each frame adds one poly plot to the axis scene
-        @test length(ax.scene.plots) >= 3
-    end
-
-end
-
-@testset "PathViz" begin
+@testset "PathlineCanvas" begin
 
     @testset "_rgba: converts to opaque RGBAf" begin
-        # Black → all channels 0, alpha 1
         c = Pathlines._rgba(:black)
-        @test c isa GLMakie.RGBAf
+        @test c isa Makie.RGBAf
         @test c.r == 0f0 && c.g == 0f0 && c.b == 0f0
         @test c.alpha == 1f0
 
-        # White → all channels 1, alpha 1
         w = Pathlines._rgba(:white)
         @test w.r == 1f0 && w.g == 1f0 && w.b == 1f0
         @test w.alpha == 1f0
     end
 
-    @testset "_fade_canvas!: lerp toward bgcolor" begin
-        # A white canvas faded 50% toward black must be exactly grey (0.5, 0.5, 0.5)
-        # because lerp(1, 0, 0.5) = 0.5
-        black = Pathlines._rgba(:black)
-        white = Pathlines._rgba(:white)
-        canvas = fill(white, 8, 8)
-        Pathlines._fade_canvas!(canvas, black, 0.5f0)
-        @test all(c -> c.r ≈ 0.5f0 && c.g ≈ 0.5f0 && c.b ≈ 0.5f0, canvas)
-
-        # Full fade (α=1) must snap to bgcolor exactly
-        Pathlines._fade_canvas!(canvas, black, 1f0)
-        @test all(c -> c.r == 0f0 && c.g == 0f0 && c.b == 0f0, canvas)
+    @testset "constructor: canvas size and scale factors" begin
+        pc = PathlineCanvas(16, 8; bgcolor=:black, figsize=(64, 32))
+        @test size(pc.canvas) == (64, 32)
+        @test pc.sx ≈ Float32(64 / 16)
+        @test pc.sy ≈ Float32(32 / 8)
+        @test pc.figsize == (64, 32)
     end
 
-    @testset "_draw_segments!: marks pixels along segment" begin
-        # One segment from canvas coord (1,1)→(8,8) (diagonal).
-        # After drawing, the pixels along the diagonal must differ from bgcolor.
-        # sx=sy=1 so sim coords == canvas coords.
-        bg = Pathlines._rgba(:black)
-        red = GLMakie.RGBAf(1f0, 0f0, 0f0, 1f0)
-        cmap = [red]   # single-colour LUT
-        canvas = fill(bg, 10, 10)
+    @testset "fade!: lerp canvas toward bgcolor" begin
+        # White canvas faded 50% toward black must be exactly grey (0.5, 0.5, 0.5)
+        pc = PathlineCanvas(4, 4; bgcolor=:black, fadealpha=0.5, colorrange=(0,1))
+        fill!(pc.canvas, Pathlines._rgba(:white))
+        fade!(pc)
+        @test all(c -> c.r ≈ 0.5f0 && c.g ≈ 0.5f0 && c.b ≈ 0.5f0, pc.canvas)
 
-        pos  = [StaticArrays.SA[8f0, 8f0]]
-        pos⁰ = [StaticArrays.SA[1f0, 1f0]]
-        Pathlines._draw_segments!(canvas, pos, pos⁰, cmap, 0f0, 1f0, 1f0, 1f0)
+        # Full fade (α=1) must snap to bgcolor exactly
+        fill!(pc.canvas, Pathlines._rgba(:white))
+        pc2 = PathlineCanvas(4, 4; bgcolor=:black, fadealpha=1.0, colorrange=(0,1))
+        fill!(pc2.canvas, Pathlines._rgba(:white))
+        fade!(pc2)
+        @test all(c -> c.r == 0f0 && c.g == 0f0 && c.b == 0f0, pc2.canvas)
+    end
 
-        # At least some pixels on the diagonal must have been written (r > 0)
-        n_painted = count(c -> c.r > 0f0, canvas)
-        @test n_painted >= 6  # diagonal is 7 pixels on a 10×10 canvas
-
-        # No pixels outside the bounding box [1,8]×[1,8] should be touched
-        @test canvas[10, 10] == bg
-        @test canvas[1, 10]  == bg
+    @testset "draw!: marks pixels along a diagonal segment" begin
+        # 10×10 canvas with resolution matching sim coords (sx=sy=1)
+        pc = PathlineCanvas(10, 10; bgcolor=:black, colorrange=(0,1),
+                            figsize=(10,10), resolution=(10,10))
+        bg  = pc.bgcolor
+        pos  = [SA[8f0, 8f0]]
+        pos⁰ = [SA[1f0, 1f0]]
+        draw!(pc, pos, pos⁰, 1f0)
+        n_painted = count(c -> c != bg, pc.canvas)
+        @test n_painted >= 6   # diagonal across a 10×10 canvas is ~7 pixels
+        # Pixels outside the segment bounding box must be untouched
+        @test pc.canvas[10, 10] == bg
+        @test pc.canvas[1, 10]  == bg
     end
 
     @testset "_draw_segments!: speed mapped to colormap" begin
-        # Slow segment (speed < lo) → first colormap entry; fast → last entry
-        bg  = Pathlines._rgba(:black)
-        red  = GLMakie.RGBAf(1f0, 0f0, 0f0, 1f0)
-        blue = GLMakie.RGBAf(0f0, 0f0, 1f0, 1f0)
-        cmap = [red, blue]  # 2-entry LUT: red=slow, blue=fast
+        # 2-entry LUT: red=slow, blue=fast
+        bg   = Pathlines._rgba(:black)
+        red  = Makie.RGBAf(1f0, 0f0, 0f0, 1f0)
+        blue = Makie.RGBAf(0f0, 0f0, 1f0, 1f0)
+        cmap = [red, blue]
 
-        # Slow segment: move 0.1 pixels → speed ≈ 0.1 < lo=1 → clamped to cidx=1 → red
+        # Slow segment: move 0.1 px in dt=1 → speed=0.1 < lo=1 → clamped to red
         canvas = fill(bg, 10, 10)
-        Pathlines._draw_segments!(canvas, [StaticArrays.SA[3.1f0, 3f0]],
-                                          [StaticArrays.SA[3f0,   3f0]],
-                                   cmap, 1f0, 3f0, 1f0, 1f0)
+        Pathlines._draw_segments!(canvas, [SA[3.1f0, 3f0]], [SA[3f0, 3f0]],
+                                  cmap, 1f0, 3f0, 1f0, 1f0, 1f0)
         painted = filter(c -> c != bg, vec(canvas))
         @test !isempty(painted)
-        @test all(c -> c.r > c.b, painted)  # slow → red (first LUT entry)
+        @test all(c -> c.r > c.b, painted)
 
-        # Fast segment: move 10 pixels → speed=10 > hi=3 → clamped to cidx=2 → blue
+        # Fast segment: move 10 px in dt=1 → speed=10 > hi=3 → clamped to blue
         canvas2 = fill(bg, 20, 20)
-        Pathlines._draw_segments!(canvas2, [StaticArrays.SA[1f0,  11f0]],
-                                           [StaticArrays.SA[1f0,   1f0]],
-                                   cmap, 1f0, 3f0, 1f0, 1f0)
+        Pathlines._draw_segments!(canvas2, [SA[1f0, 11f0]], [SA[1f0, 1f0]],
+                                  cmap, 1f0, 3f0, 1f0, 1f0, 1f0)
         painted2 = filter(c -> c != bg, vec(canvas2))
         @test !isempty(painted2)
-        @test all(c -> c.b > c.r, painted2)  # fast → blue (last LUT entry)
-    end
-
-    # Shared sim + viz for constructor/update tests (built once to avoid repeated
-    # GLMakie Figure construction).  16×16 grid keeps sim_step! fast.
-    let sim = tgv_sim(16), figsize = (64, 32)
-        v = PathViz(sim; N=128, life=UInt(20), figsize, body=false,
-                    bgcolor=:black, colormap=:plasma, colorrange=(0,2))
-
-        @testset "PathViz constructor: canvas size and scene layout" begin
-            # Canvas must match figsize, not the sim grid (16×16 → canvas 64×32)
-            @test size(v._canvas) == (64, 32)
-
-            # Scale factors: px/sim_nx where sim_nx includes ghost cells
-            sim_nx = size(sim.flow.σ, 1)
-            sim_ny = size(sim.flow.σ, 2)
-            @test v._sx ≈ Float32(64 / sim_nx)
-            @test v._sy ≈ Float32(32 / sim_ny)
-
-            # Figure size must match (viewport widths is a Vec, compare as array)
-            @test collect(v.fig.scene.viewport[].widths) == [64, 32]
-
-            # image! is the only plot (no body layer when body=false)
-            @test length(v.ax.scene.plots) == 1
-        end
-
-        @testset "update!: canvas modified after one particle step" begin
-            bg = Pathlines._rgba(:black)
-            @test all(c -> c == bg, v._canvas)  # starts all-bgcolor
-
-            # Advance one sim step then update particles — does not loop on sim_time
-            sim_step!(sim)
-            Pathlines.update!(v, sim)
-
-            n_painted = count(c -> c != bg, v._canvas)
-            @test n_painted > 0  # at least one segment must have been splatted
-            @info "PathViz update!: $n_painted pixels painted (canvas $(size(v._canvas)))"
-        end
+        @test all(c -> c.b > c.r, painted2)
     end
 
 end

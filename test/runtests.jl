@@ -8,13 +8,13 @@ import CUDA
 # Small 2D Taylor-Green vortex simulation (reused across testsets)
 function tgv_sim(N=32, T=Float32; mem=Array, Δt=0.25f0)
     k = T(2π/N)
-    function uλ(i,xy)
+    function u0(i,xy)
         x,y = @. (xy - T(1.5)) * k
         i==1 && return -sin(x)*cos(y)
         i==2 && return  cos(x)*sin(y)
         zero(T)
     end
-    Simulation((N,N), (0,0), N; uλ, ν=T(1e-4), T, mem, Δt)
+    Simulation((N,N), (0,0), N; u0, ν=T(1e-4), T, mem, Δt)
 end
 
 @testset "Particles" begin
@@ -78,15 +78,15 @@ end
 
     if CUDA.functional()
         @testset "GPU update!: particles stay in bounds" begin
-            # uλ must not capture Type{T} — use concrete Float32 literals for GPU isbits
+            # u0 must not capture Type{T} — use concrete Float32 literals for GPU isbits
             N = 32; k = Float32(2π/N)
-            function uλ_gpu(i,xy)
+            function u0_gpu(i,xy)
                 x,y = @. (xy - 1.5f0)*k
                 i==1 && return -sin(x)*cos(y)
                 i==2 && return  cos(x)*sin(y)
                 0.0f0
             end
-            sim = Simulation((N,N), (0,0), N; uλ=uλ_gpu, ν=1f-4, T=Float32, mem=CUDA.CuArray)
+            sim = Simulation((N,N), (0,0), N; u0=u0_gpu, ν=1f-4, T=Float32, mem=CUDA.CuArray)
             p = Particles(1024, sim.flow.p; life=UInt(50), mem=CUDA.CuArray)
 
             for _ in 1:20

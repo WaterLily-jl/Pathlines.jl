@@ -22,21 +22,21 @@ struct PathlineCanvas
 end
 
 """
-    PathlineCanvas(nx, ny; bgcolor=:black, fadealpha=0.2,
+    PathlineCanvas(nx, ny; bgcolor=:black, fadetau=0.2,
                    colormap=:plasma, colorrange=(0, 3),
                    figsize=nothing, resolution=nothing)
 
 Construct a `PathlineCanvas` for a simulation grid of interior size `(nx, ny)`.
 
 - `bgcolor`    : canvas background color (faded toward each frame).
-- `fadealpha`  : per-frame lerp strength toward background (0 = no fade, 1 = instant wipe).
+- `fadetau`    : trail persistence time constant, in convective time units (L/U). Creates pathlines O(`fadetau*L`) long.
 - `colormap`   : Makie colormap for speed-based segment coloring.
 - `colorrange` : `(lo, hi)` speed values mapped across the colormap.
 - `figsize`    : figure pixel size `(width, height)`; defaults to `(4nx, 4ny)`.
 - `resolution` : canvas pixel size `(px, py)`; defaults to `figsize`.
 """
 function PathlineCanvas(nx::Int, ny::Int;
-                        bgcolor=:black, fadealpha=0.2,
+                        bgcolor=:black, fadetau=0.2,
                         colormap=:plasma, colorrange=(0, 3),
                         figsize=nothing, resolution=nothing)
     fs     = isnothing(figsize)    ? (4nx, 4ny) : figsize
@@ -44,7 +44,7 @@ function PathlineCanvas(nx::Int, ny::Int;
     bg     = _rgba(bgcolor)
     canvas = fill(bg, px, py)
     cmap   = Makie.resample_cmap(colormap, 256)
-    PathlineCanvas(canvas, bg, Float32(fadealpha), cmap,
+    PathlineCanvas(canvas, bg, Float32(fadetau), cmap,
                    Float32(colorrange[1]), Float32(colorrange[2]),
                    Float32(px / nx), Float32(py / ny), fs)
 end
@@ -56,9 +56,9 @@ end
 
 Lerp every canvas pixel toward the background color by the canvas fade factor.
 """
-function fade!(pc::PathlineCanvas)
-    α, bg = pc.fade, pc.bgcolor
-    @inbounds for k in eachindex(pc.canvas)
+function fade!(pc::PathlineCanvas, dt=1f0)
+    α, bg = 1 - exp(-Float32(dt/pc.fade)), pc.bgcolor
+    @inbounds @simd for k in eachindex(pc.canvas)
         c = pc.canvas[k]
         pc.canvas[k] = Makie.RGBAf(c.r + (bg.r - c.r)*α,
                                     c.g + (bg.g - c.g)*α,
@@ -111,7 +111,7 @@ function _draw_segments!(canvas::Matrix{Makie.RGBAf}, pos, pos⁰,
                           sx::Float32, sy::Float32, dt::Float32)
     px, py = size(canvas)
     ncmap  = length(cmap_colors)
-    @inbounds for k in eachindex(pos)
+    @inbounds @simd for k in eachindex(pos)
         p0, p1 = pos⁰[k], pos[k]
         dx, dy = p1[1]-p0[1], p1[2]-p0[2]
         speed  = sqrt(dx*dx + dy*dy) / dt

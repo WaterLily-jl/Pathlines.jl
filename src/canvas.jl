@@ -32,14 +32,14 @@ Construct a `PathlineCanvas` for a simulation grid of interior size `(nx, ny)`.
 - `fadetau`    : trail persistence time constant, in convective time units (L/U). Creates pathlines O(`fadetau*L`) long.
 - `colormap`   : Makie colormap for speed-based segment coloring.
 - `colorrange` : `(lo, hi)` speed values mapped across the colormap.
-- `figsize`    : figure pixel size `(width, height)`; defaults to `(4nx, 4ny)`.
+- `figsize`    : figure pixel size `(width, height)`; defaults to `(1200, 1200*ny/nx)`.
 - `resolution` : canvas pixel size `(px, py)`; defaults to `figsize`.
 """
 function PathlineCanvas(nx::Int, ny::Int;
                         bgcolor=:black, fadetau=0.2,
                         colormap=:plasma, colorrange=(0, 3),
                         figsize=nothing, resolution=nothing)
-    fs     = isnothing(figsize)    ? (4nx, 4ny) : figsize
+    fs     = isnothing(figsize)    ? (1200, (1200*ny)÷nx) : figsize
     px, py = isnothing(resolution) ? fs          : resolution
     bg     = _rgba(bgcolor)
     canvas = fill(bg, px, py)

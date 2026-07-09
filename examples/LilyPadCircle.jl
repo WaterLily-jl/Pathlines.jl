@@ -1,4 +1,4 @@
-using WaterLily, LilyPad, StaticArrays, BiotSavartBCs, CUDA, Pathlines, GLMakie
+using WaterLily, LilyPad, StaticArrays, BiotSavartBCs, CUDA, GLMakie, Pathlines
 import ColorSchemes: colorschemes
 
 function make_lilypad_circle(; p=4, Δt=1.5, T=Float32, mem=Array)
@@ -25,12 +25,13 @@ begin
 
     # Create the visualization with the spoke
     # Requires WaterLily#pathline-viz!
-    N=5_000; life=UInt(200); fadetau=0.5
     colormap=:starrynight
-    bgcolor   = colorschemes[colormap].colors[1]
+    bgcolor    = colorschemes[colormap].colors[1]
     body_color = colorschemes[colormap].colors[end]
-    fig, ax = viz!(sim; N, life, mem, remeasure=false, body_color, bgcolor, fadetau,
-                   figsize=(1280, 720), colormap, colorrange=(0, 2))
+    fig, ax = viz!(sim; remeasure=false, verbose=false,
+                   N = 5_000, life = UInt(200), fadetau=0.5, mem, 
+                   colorrange=(0, 2), bgcolor,
+                   body_color, colormap)
     lines!(ax, spoke, color=:black, linewidth=4)
 end
 
@@ -62,9 +63,8 @@ begin
 
     # Advance viz & update spoke until window closes
     while events(fig).window_open[]
-        viz_step!(fig, sim_time(sim) + dt)
         θ[] += ω[]*dt*sim.L/sim.U
         spoke[] = points(θ[])
-        yield()   # hand control back to GLMakie event loop
+        viz_step!(fig, sim, sim_time(sim) + dt)
     end
 end

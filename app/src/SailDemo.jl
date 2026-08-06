@@ -1,7 +1,7 @@
 module SailDemo
 
 using WaterLily, BiotSavartBCs, GLMakie, StaticArrays, ParametricBodies, LilyPad, Pathlines
-import ParametricBodies: tangent, hat, measure, AbstractParametricBody, curve_props, perp
+import ParametricBodies: tangent, hat, AbstractParametricBody, curve_props, perp
 
 function sail(; p=6, Δt=2, T=Float32, mem=Array, β=0.)
     m = 2^p; n = 2m; β = T(β)
@@ -11,16 +11,20 @@ function sail(; p=6, Δt=2, T=Float32, mem=Array, β=0.)
         pnts = length*R*SMatrix{2,4,T}(0, 0, 0.25, c1, 0.75, c2, 1, 0) .+ edge
         spline = BSplineCurve(pnts,degree=3)
         dotS(u,t) = β*hat(tangent(spline,u,t))
-        return ParametricBody(spline;dotS,thk=1.5,boundary=false)
+        return SailBody(ParametricBody(spline;dotS,thk=1.5,boundary=false))
     end
     return LilyBiotSim((n, m), (1, 0), length; ν=0, Δt, body=new_body(0, 0, 0), mem, T, ϵ=0.5), new_body
 end
 
-function measure(body::AbstractParametricBody,x,t;fastd²=Inf) # type piracy!
-    d,n,dotS = curve_props(body,x,t;fastd²)
-    d^2 > fastd² && return d,zero(x),zero(x)
-    dξdt = n[2]>0 ? dotS : zero(x)
-    return (d,n,dξdt)
+struct SailBody{B<:AbstractParametricBody} <: AbstractParametricBody
+    inner::B
+end
+Base.getproperty(s::SailBody, f::Symbol) = f === :inner ? getfield(s,:inner) : getproperty(getfield(s,:inner), f)
+function WaterLily.measure(body::SailBody, x, t; fastd²=Inf)
+    d,n,dotS = curve_props(body.inner, x, t; fastd²)
+    d^2 > fastd² && return d, zero(x), zero(x)
+    dξdt = n[2]>0 ? dotS : zero(x)  # one-sided: sail only pushes on the leeward side
+    return (d, n, dξdt)
 end
 
 normal(curve,u,t=0) = perp(hat(tangent(curve,u,t)))

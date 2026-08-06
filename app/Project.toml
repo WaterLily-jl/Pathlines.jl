@@ -6,11 +6,16 @@ version = "0.1.0"
 BiotSavartBCs = "ec5a6caf-bdf7-41d0-b8e1-5fafde84e19f"
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 LilyPad = "e335cd22-3907-46ba-824b-62f80b6bacdb"
+PackageCompiler = "9b87118b-4619-50d2-8e1e-99f35a4d4d9d"
 ParametricBodies = "06905c2e-4b4a-4765-8bb9-c6b6b2b99b1d"
 Pathlines = "5152f5a6-f176-4b17-91fb-55faba501013"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
 
-# Pathlines is local — resolve via: julia --project=app -e 'using Pkg; Pkg.develop(path=".")'
 [sources]
+BiotSavartBCs = {url = "https://github.com/WaterLily-jl/BiotSavartBCs.jl"}
+LilyPad = {url = "https://github.com/WaterLily-jl/LilyPad.jl"}
 Pathlines = {path = ".."}
+
+[compat]
+PackageCompiler = "2.4.0"

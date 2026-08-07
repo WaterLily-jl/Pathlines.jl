@@ -1,6 +1,6 @@
 module SailDemo
 
-using WaterLily, BiotSavartBCs, GLMakie, StaticArrays, ParametricBodies, LilyPad, Pathlines
+using WaterLily, BiotSavartBCs, GLMakie, StaticArrays, ParametricBodies, LilyPad, Pathlines, Printf
 import ParametricBodies: tangent, hat, AbstractParametricBody, curve_props, perp, measure
 
 function sail(; p=6, Δt=2, T=Float32, mem=Array, β=0.)
@@ -65,6 +65,27 @@ function julia_main()::Cint
     tail = sim.body.curve(1f0) |> Observable
     vec = (tail[] - sim.body.curve(0f0)) |> Observable
     arrows2d!(ax, tail, vec, color=:red)
+
+    force = zeros(Float32, 2)
+    aoa_txt   = Observable("")
+    tens_txt  = Observable("")
+    lift_txt  = Observable("")
+    drag_txt  = Observable("")
+    poly!(ax, Rect2f(0.79, 0.8, 0.2, 0.19); space = :relative,
+        color = (:black, 0.6), strokecolor = :transparent
+    )
+    text!(ax, 0.98, 0.98;  text=aoa_txt,  space=:relative,
+        align=(:right,:top), color=:white, fontsize=20)
+
+    text!(ax, 0.98, 0.94;  text=tens_txt, space=:relative,
+        align=(:right,:top), color=:white, fontsize=20)
+
+    text!(ax, 0.98, 0.90;  text=lift_txt, space=:relative,
+        align=(:right,:top), color=:limegreen, fontsize=20)
+
+    text!(ax, 0.98, 0.86;  text=drag_txt, space=:relative,
+        align=(:right,:top), color=:tomato, fontsize=20)
+
     deregister_interaction!(ax, :rectanglezoom)  # prevent Makie's drag-to-zoom hijacking swipe
 
     AoA, tension = Ref(0f0), Ref(10f0)
@@ -101,6 +122,11 @@ function julia_main()::Cint
 
     while events(fig).window_open[]
         viz_step!(fig, sim)
+        force = 0.95force + 0.1WaterLily.total_force(sim) ./ sim.L
+        aoa_txt[] = @sprintf("Angle of attack: %3.0f°", rad2deg(AoA[]))
+        tens_txt[] = @sprintf("Sail tension: %4.1f", tension[]/10)
+        lift_txt[] = @sprintf("Lift coefficient: %4.2f", -force[2])
+        drag_txt[] = @sprintf("Drag coefficient: %4.2f", abs(2force[1])+0.04)
         copyto!(p, sim.flow.p)
         f1r, f2r = project_modes(p, sim.body.curve, AoA[], u)
         f1[] += (f1r - f1[])/8; f2[] += (f2r - f2[])/8

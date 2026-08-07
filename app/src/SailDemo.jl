@@ -1,7 +1,7 @@
 module SailDemo
 
 using WaterLily, BiotSavartBCs, GLMakie, StaticArrays, ParametricBodies, LilyPad, Pathlines
-import ParametricBodies: tangent, hat, AbstractParametricBody, curve_props, perp
+import ParametricBodies: tangent, hat, AbstractParametricBody, curve_props, perp, measure
 
 function sail(; p=6, Δt=2, T=Float32, mem=Array, β=0.)
     m = 2^p; n = 2m; β = T(β)
@@ -20,8 +20,10 @@ struct SailBody{B<:AbstractParametricBody} <: AbstractParametricBody
     inner::B
 end
 Base.getproperty(s::SailBody, f::Symbol) = f === :inner ? getfield(s,:inner) : getproperty(getfield(s,:inner), f)
-function WaterLily.measure(body::SailBody, x, t; fastd²=Inf)
-    d,n,dotS = curve_props(body.inner, x, t; fastd²)
+Base.setproperty!(a::SailBody, name::Symbol, x) = setproperty!(getfield(a, :inner), name, x)
+curve_props(body::SailBody, x, t; fastd²=Inf) = curve_props(body.inner, x, t; fastd²)
+function measure(body::SailBody, x, t; fastd²=Inf)
+    d,n,dotS = curve_props(body, x, t; fastd²)
     d^2 > fastd² && return d, zero(x), zero(x)
     dξdt = n[2]>0 ? dotS : zero(x)  # one-sided: sail only pushes on the leeward side
     return (d, n, dξdt)

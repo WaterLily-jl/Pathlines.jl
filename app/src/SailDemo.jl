@@ -65,6 +65,7 @@ function julia_main()::Cint
     tail = sim.body.curve(1f0) |> Observable
     vec = (tail[] - sim.body.curve(0f0)) |> Observable
     arrows2d!(ax, tail, vec, color=:red)
+    deregister_interaction!(ax, :rectanglezoom)  # prevent Makie's drag-to-zoom hijacking swipe
 
     AoA, tension = Ref(0f0), Ref(10f0)
     f1, f2 = Ref(0f0), Ref(0f0)
@@ -75,6 +76,27 @@ function julia_main()::Cint
         elseif event.key == Keyboard.left;  tension[] *= 0.9f0
         elseif event.key == Keyboard.right; tension[] *= 1.1f0
         else; return; end
+    end
+    # Touch/swipe: swipe down = more AoA, right = more tension
+    mouse_down = Ref(false)
+    first_move = Ref(true)
+    last_pos   = Ref(Vec2f(0, 0))
+    on(events(fig).mousebutton) do event
+        event.button == Mouse.left || return
+        mouse_down[] = event.action == Mouse.press
+        first_move[] = true
+    end
+    on(events(fig).mouseposition) do pos
+        mouse_down[] || return
+        if first_move[]
+            last_pos[]   = pos
+            first_move[] = false
+            return
+        end
+        delta      = pos .- last_pos[]
+        last_pos[] = pos
+        AoA[]     -= Float32(delta[2] * π / 2000)
+        tension[]  = clamp(tension[] * 1.1f0^Float32(delta[1] / 10), 1f0, 500f0)
     end
 
     while events(fig).window_open[]

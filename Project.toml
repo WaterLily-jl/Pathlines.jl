@@ -12,6 +12,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
 
 [compat]
+WaterLily = "1.9"
 julia = "1"
 
 [extras]

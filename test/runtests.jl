@@ -1,4 +1,4 @@
-using Pathlines, WaterLily, LilyPad, StaticArrays, Test
+using Pathlines, WaterLily, StaticArrays, Test
 import Makie
 using LinearAlgebra: norm
 import WaterLily: interp
@@ -7,12 +7,12 @@ import CUDA
 
 # Small 2D Taylor-Green vortex simulation (reused across testsets)
 function tgv_sim(N=32, T=Float32; mem=Array, Δt=0.25f0)
-    k = T(2π/N)
+    k, h = T(2π/N), T(1.5) # u0 must not capture Type{T}: kernels need isbits closures
     function u0(i,xy)
-        x,y = @. (xy - T(1.5)) * k
+        x,y = @. (xy - h) * k
         i==1 && return -sin(x)*cos(y)
         i==2 && return  cos(x)*sin(y)
-        zero(T)
+        zero(k)
     end
     Simulation((N,N), (0,0), N; u0, ν=T(1e-4), T, mem, Δt)
 end
@@ -40,7 +40,7 @@ end
 
     @testset "CN accuracy: step-by-step reference" begin
         # Reference: continuously integrate a particle through 10 sim steps using
-        # LilyPad.departure at each physical Δt=0.1. Then compare a one-shot CN
+        # Pathlines.departure at each physical Δt=0.1. Then compare a one-shot CN
         # integration over the full Δt=1.0 window to that reference.
         Δt = 0.1f0
         sim = tgv_sim(; Δt)
@@ -51,11 +51,11 @@ end
         Δt_total = 0f0
         for _ in 1:10
             sim_step!(sim); sim.flow.Δt[end] = Δt  # enforce constant Δt
-            x_ref = LilyPad.departure(x_ref, sim.flow.u, sim.flow.u⁰, -Δt)
+            x_ref = Pathlines.departure(x_ref, sim.flow.u, sim.flow.u⁰, -Δt)
             Δt_total += Δt
         end
 
-        x_cn = LilyPad.departure(x⁰, sim.flow.u, u_init, -Δt_total)
+        x_cn = Pathlines.departure(x⁰, sim.flow.u, u_init, -Δt_total)
         err  = norm(x_cn - x_ref)
         @info "CN unsteady accuracy" Δt_total err
         @test err < 0.03
@@ -130,14 +130,14 @@ end
 
     @testset "fade!: lerp canvas toward bgcolor" begin
         # White canvas faded 50% toward black must be exactly grey (0.5, 0.5, 0.5)
-        pc = PathlineCanvas(4, 4; bgcolor=:black, fadealpha=0.5, colorrange=(0,1))
+        pc = PathlineCanvas(4, 4; bgcolor=:black, fadetau=1/log(2), colorrange=(0,1)) # α = 1-exp(-dt/τ) = 0.5
         fill!(pc.canvas, Pathlines._rgba(:white))
         fade!(pc)
         @test all(c -> c.r ≈ 0.5f0 && c.g ≈ 0.5f0 && c.b ≈ 0.5f0, pc.canvas)
 
-        # Full fade (α=1) must snap to bgcolor exactly
+        # Full fade (α=1, τ=0) must snap to bgcolor exactly
         fill!(pc.canvas, Pathlines._rgba(:white))
-        pc2 = PathlineCanvas(4, 4; bgcolor=:black, fadealpha=1.0, colorrange=(0,1))
+        pc2 = PathlineCanvas(4, 4; bgcolor=:black, fadetau=0, colorrange=(0,1))
         fill!(pc2.canvas, Pathlines._rgba(:white))
         fade!(pc2)
         @test all(c -> c.r == 0f0 && c.g == 0f0 && c.b == 0f0, pc2.canvas)

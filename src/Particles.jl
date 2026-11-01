@@ -1,4 +1,4 @@
-using WaterLily, LilyPad, StaticArrays, KernelAbstractions
+using WaterLily, StaticArrays, KernelAbstractions
 
 struct Particles{D,V<:AbstractArray,S<:AbstractArray}
     position::V
@@ -25,16 +25,27 @@ spawn(lower::SVector{D,T},upper::SVector{D,T}) where {D,T} = rand(SVector{D,T}).
     update!(p::Particles, sim::Simulation)
 
 Update the state of each particle in `p` using a given flow `sim`.
-Uses a 2nd-order Crank-Nicolson integrator (via `LilyPad.departure`) and
+Uses a 2nd-order Crank-Nicolson integrator (`departure`) and
 KernelAbstractions to run multi-threaded on CPUs and GPUs.
 """
 update!(p::Particles,sim::Simulation) = _update!(get_backend(p.age),64)(p.age,p.position,p.position⁰,
     sim.flow.u⁰,sim.flow.u,sim.flow.Δt[end-1],p.life,p.lower,p.upper,ndrange=length(p.age))
 
+"""
+    departure(x, u⁰, u, dt)
+
+Crank-Nicolson backtrack of the point `x` through the velocity fields `u` and `u⁰` over `dt`.
+"""
+@inline function departure(x, u⁰, u, dt)
+    dx = -dt * WaterLily.interp(x, u)
+    dx⁰ = -dt * WaterLily.interp(x + dx, u⁰)
+    return x + (dx + dx⁰) / 2
+end
+
 @kernel function _update!(age,x,x⁰,@Const(u⁰),@Const(u),@Const(Δt),@Const(life),@Const(lower),@Const(upper))
     i = @index(Global)
     x⁰[i] = x[i]
-    x[i] = LilyPad.departure(x⁰[i], u, u⁰, -Δt)
+    x[i] = departure(x⁰[i], u, u⁰, -Δt)
     age[i] += one(eltype(age))
     if(age[i]==life || any(x[i] .< lower) || any(x[i] .> upper))
         age[i] = zero(eltype(age))
